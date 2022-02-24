@@ -1,0 +1,26 @@
+---
+title: "ESM 244 - W22 - Lab 8"
+author: "Karina Johnston"
+date: "2/24/2022"
+output: 
+  html_document: 
+    toc: yes
+    theme: cerulean
+---
+
+```{r setup, include = TRUE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(here)
+library()
+
+```
+
+
+
+
+
+
+
+
