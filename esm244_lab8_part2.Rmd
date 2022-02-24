@@ -1,0 +1,30 @@
+---
+title: "ESM 244 - Lab 8"
+subtitle: "Part 2: Time Series Analysis"
+author: "Karina Johnston"
+date: "2/24/2022"
+output: 
+  html_document: 
+    toc: yes
+    theme: cerulean
+---
+
+```{r setup, include = TRUE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Attach packages
+
+library(spatstat) # package for spatial statistics
+library(maptools)
+library(raster) # will automatically load the sp package
+
+library(tidyverse) # need to load this after raster package
+library(here)
+library(sf)
+library(tmap)
+
+```
+
+
+
+
