@@ -1,5 +1,6 @@
 ---
 title: "ESM 244 - W22 - Lab 8"
+subtitle: "Part 1: Point Pattern Analysis"
 author: "Karina Johnston"
 date: "2/24/2022"
 output: 
@@ -11,16 +12,185 @@ output:
 ```{r setup, include = TRUE, message = FALSE, warning = FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
-library(tidyverse)
+# Attach packages
+
+library(spatstat) # package for spatial statistics
+library(maptools)
+library(raster) # will automatically load the sp package
+
+library(tidyverse) # need to load this after raster package
 library(here)
-library()
+library(sf)
+library(tmap)
+
+```
+
+See: - CRS & proj4 components breakdown: https://www.earthdatascience.org/courses/earth-analytics/spatial-data-r/reproject-vector-data/
+
+Voles Data
+
+```{r}
+# read in the voles sf
+
+voles <- read_sf(dsn = here("redtreevoledata"), # dsn = data source name
+                            layer = "ds033") %>% 
+  janitor::clean_names() %>%
+  select(county) %>% # Only select the county attribute
+  filter(county == "HUM") %>% # Only keep observations in Humboldt County
+  st_transform(crs = 32610) # Update coordinate reference system to universal transverse mercator UTM zone 10 N - can look this up online to get the code
+
+```
+
+```{r}
+# preliminary plot
+
+plot(voles)
 
 ```
 
 
+```{r}
+
+# read in the humboldt shape file
+
+humboldt <- read_sf(dsn = here("redtreevoledata"),
+                    layer = "california_county_shape_file") %>% 
+  janitor::clean_names() %>%
+  filter(name == "Humboldt") %>% 
+  st_set_crs(4326) %>% # doesn't have a coord ref system so we have to assign one (EPSG) - not the same as transform; this is a standard lat/long - so you are prob in the standard one if you recognize lat/long
+  st_transform(32610)
+
+# make sure voles and humboldt are both in the same CRS!!!
+
+```
 
 
+```{r}
+# plot them together
 
+ggplot() +
+  geom_sf(data = humboldt, # whichever data set comes first, it will be on the bottom (important for fills or rasters!)
+          color = "darkorchid",
+          fill = "darkorchid4",
+          size = 1) +
+  geom_sf(data = voles,
+          color = "orange",
+          alpha = 0.7,
+          size = 2) +
+  theme_classic()
+
+```
+
+
+`spatstat` package works on simple features (old school R), so need to convert
+
+```{r}
+# sp is old school R spatial package
+# all coming from spatstat package
+
+voles_sp <- as(voles, "Spatial") # turn simple features into simple object
+voles_ppp <- as(voles_sp, "ppp") # point pattern analysis
+
+humboldt_sp <- as(humboldt, "Spatial")
+humboldt_win <- as(humboldt_sp, "owin") # turn it into a window (because not points)
+
+# x is values of x lat for all voles
+# this whole section is to create this new object
+
+voles_full <- ppp(voles_ppp$x, voles_ppp$y,
+                  window = humboldt_win) 
+
+plot(voles_full)
+
+```
+
+### make a kernel density plot
+
+```{r}
+# look for the hotspots
+
+voles_density2 <- density(voles_full, sigma = 10) # one meter "range" for each vole
+voles_density <- density(voles_full, sigma = 2500)
+
+plot(voles_density)
+plot(voles_density2)
+
+```
+
+lets make the raster map interactive in `tmap`
+
+```{r}
+
+vole_raster <- raster(voles_density) # convert to a raster
+
+# this is in the raster package
+crs(vole_raster) <- crs(voles) # assign original CRS from voles data
+
+tmap_mode("view") # change to interactive mode
+
+tm_shape(vole_raster) +
+  tm_raster(midpoint = NA,
+            palette = "Reds",
+            legend.show = FALSE)
+
+```
+
+
+### Nearest neighbor (G function)
+
+```{r}
+
+r_vector <- seq(0, 10000, by = 100) # min, max, countby 100m at a time
+gfunction <- envelope(voles_full, fun = Gest, r = r_vector, 
+                      nsim = 100, # generate 100 simulations of complete spatial randomness, more sims = smoother
+                      nrank = 2)
+
+gfunction_long <- gfunction %>% 
+  as.data.frame() %>% 
+  pivot_longer(col = obs:hi, names_to = "model", values_to = "g_val")
+
+```
+
+
+```{r}
+
+ggplot(data = gfunction_long, aes(x = r, y = g_val, group = model)) +
+  geom_line(aes(color = model)) +
+  theme_classic()
+
+# teal line is above the high bracket of the CSR, so its telling us the data are clustered
+
+```
+
+
+```{r}
+
+r_vec2 <- seq(0, 100000, by = 5000)
+
+lfunction <- envelope(voles_full, fun = Lest, 
+                      r = r_vec2, nsim = 10,
+                      rank = 2, global = TRUE)
+
+
+```
+
+### Run the L function (more computations!!)
+looks at distance between all of the points
+
+```{r}
+
+lfunction_long <- lfunction %>% 
+  as.data.frame() %>% 
+  pivot_longer(cols = obs:hi, names_to = "model", values_to = "l_val")
+
+ggplot(data = lfunction_long, aes(x = r, y = l_val, color = model)) +
+  geom_line(size = 1.2) +
+  theme_classic()
+
+```
+
+
+### End of point pattern analysis
 
 
 
