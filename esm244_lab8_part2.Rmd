@@ -13,18 +13,230 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 # Attach packages
-
-library(spatstat) # package for spatial statistics
-library(maptools)
-library(raster) # will automatically load the sp package
-
-library(tidyverse) # need to load this after raster package
+library(tidyverse) 
 library(here)
-library(sf)
-library(tmap)
+library(lubridate)
+library(tsibble) # df that has special characteristics for time series
+library(feasts) # specifically for time series data analyses
+library(slider)
 
 ```
 
 
+```{r}
+# load the data
+toolik <- read_csv(here("data/toolikweather.csv"))
 
+```
+
+
+```{r, eval = FALSE}
+# use eval = FALSE to comment out the whole code chunk
+# this graph wont work because date is wrong
+
+ggplot(data = toolik, aes(x = date, y = mean_airtemp)) +
+  geom_line() +
+  theme_classic()
+
+```
+
+### Wrangle the data
+
+```{r}
+
+toolik_ts <- toolik %>% 
+  mutate(date = lubridate::mdy(date)) %>% 
+  as_tsibble(key = NULL, index = date)
+
+# class(toolik_ts)
+```
+
+
+```{r, fig.width=10, fig.height = 4}
+# plot it
+# use \n for a line split in the graph title or axis label
+
+ggplot(data = toolik_ts, aes(x = date, y = mean_airtemp)) +
+  geom_line() +
+  labs(x = "Date", y = "Mean daily air temp (C)\n at Toolik Station") +
+  theme_classic()
+
+```
+
+
+```{r}
+# normally use group_by and summarize, but diff for tibble
+
+toolik_month <- toolik_ts %>% 
+  index_by(yr_mo = ~yearmonth(.)) %>% 
+  summarize(monthly_mean_temp = mean(mean_airtemp, na.rm = TRUE))
+
+```
+
+
+```{r, fig.width=10, fig.height = 4}
+
+ggplot(data = toolik_month, aes(x = yr_mo, y = monthly_mean_temp)) +
+  geom_line() +
+  theme_classic()
+
+# use lubridate to extract only the year for the x-axis
+ggplot(data = toolik_month, aes(x = year(yr_mo), y = monthly_mean_temp)) +
+  geom_line() +
+  facet_wrap(~month(yr_mo, label = TRUE)) +
+  labs(x = "Year",
+       y = "Annual mean air temp (C)",
+       title = "Toolik Station mean annual air temperature",
+       subtitle = "1988-2018",
+       caption = "Source: Shaver G., 2019") +
+  theme_classic()
+
+```
+
+
+```{r}
+# ts = time series
+
+toolik_annual <- toolik_ts %>% 
+  index_by(yearly = ~year(.)) %>% 
+  summarize(annual_airtemp = mean(mean_airtemp, na.rm = TRUE))
+
+ggplot(data = toolik_annual, aes(x = yearly, y = annual_airtemp)) +
+  geom_line() +
+  theme_classic()
+
+
+toolik_weekly <- toolik_ts %>% 
+  index_by(weekly = ~yearweek(.)) %>% 
+  summarize(weekly_airtemp = mean(mean_airtemp, na.rm = TRUE))
+
+ggplot(data = toolik_weekly, aes(x = weekly, y = weekly_airtemp)) +
+  geom_line() +
+  theme_classic()
+
+```
+
+
+```{r}
+# filter based on the index of the date range values
+
+# can set dates based on year, month, or day
+toolik_ts %>% 
+  filter_index("2000-06" ~ "2001-10")
+
+```
+
+
+### Now looking at season plots
+
+explore changes in seasonality with seasonplots using `feasts::ggseason()` 
+
+```{r}
+# assumes x is going to be date on the bottom
+
+toolik_ts %>% 
+  filter(year(date) > 2014) %>% 
+  gg_season(y = mean_airtemp, size = .8) +
+  theme_classic()
+
+```
+
+
+```{r}
+
+toolik_month %>% 
+  gg_season(y = monthly_mean_temp, size = .8) +
+  theme_classic()
+
+```
+
+subseries plots
+
+```{r}
+
+toolik_month %>% 
+  gg_subseries(monthly_mean_temp) +
+  theme_classic()
+
+```
+
+
+### Moving averages
+
+`slider` package allows us to calculate moving averages!!
+
+```{r}
+
+set.seed(2021)
+test <- rnorm(100, mean = 40, sd = 10)
+
+# moving window two before and two after
+slide(test, ~.x, .before = 2, .after = 2)
+
+w5 <- as.numeric(slide(test, mean, .before = 2, .after = 2))
+w11 <- as.numeric(slide(test, mean, .before = 5, .after = 5))
+w19 <- as.numeric(slide(test, mean, .before = 9, .after = 9))
+
+combo <- tibble(time = 1:100, test, w5, w11, w19) %>% 
+  pivot_longer(test:w19, names_to = "model", values_to = "value")
+
+```
+
+
+```{r}
+
+ggplot(data = combo) +
+  geom_line(aes(x = time, y = value, color = model), size = 0.6) +
+  theme_classic()
+
+```
+
+
+```{r}
+# create a new column for moving 15-day average
+
+roll_toolik_15 <- toolik_ts %>% 
+  mutate(ma_15 = as.numeric(slide(toolik_ts$mean_airtemp, mean, 
+                                  .before = 7, .after = 7)))
+
+roll_toolik_61 <- toolik_ts %>% 
+  mutate(ma_61 = as.numeric(slide(toolik_ts$mean_airtemp, mean, 
+                                  .before = 30, .after = 30)))
+
+ggplot(data = toolik_ts, aes(x = date, y = mean_airtemp)) +
+  geom_line(size = 0.3, color = "grey") +
+  geom_line(data = roll_toolik_15, aes(y = ma_15), color = "orange") +
+  geom_line(data = roll_toolik_61, aes(y = ma_61), color = "blue") +
+  theme_classic()
+
+```
+
+
+### Autocorrelation (from feasts package)
+
+```{r}
+
+toolik_ts %>% 
+  ACF(mean_airtemp) %>% 
+  autoplot() +
+  theme_classic()
+
+toolik_month %>% 
+  ACF(monthly_mean_temp) %>% 
+  autoplot() +
+  theme_classic()
+
+```
+
+#### Decomposition
+
+```{r}
+# stl = seasonal trends and rest of decomp (leftovers)
+
+toolik_dec <- toolik_month %>% 
+  model(STL(monthly_mean_temp ~ season(window = Inf)))
+
+components(toolik_dec) %>% autoplot() + theme_classic()
+
+```
 
